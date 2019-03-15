@@ -1,0 +1,17 @@
+language: go
+
+go:
+  - 1.12.x
+
+env:
+  - GO111MODULE=on ETCD_ADDR=0.0.0.0:2379
+
+install: true
+
+go_import_path: github.com/xdefrag/viper-etcd
+
+services:
+  - docker
+
+before_install:
+- docker run -d -p 2379:2379 quay.io/coreos/etcd:latest etcd --advertise-client-urls http://0.0.0.0:2380 --listen-client-urls http://0.0.0.0:2379
