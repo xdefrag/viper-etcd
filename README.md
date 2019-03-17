@@ -1,10 +1,11 @@
 # Viper Etcd
 [![Build Status](https://travis-ci.com/xdefrag/viper-etcd.svg?branch=master)](https://travis-ci.com/xdefrag/viper-etcd)
 [![codecov](https://codecov.io/gh/xdefrag/viper-etcd/branch/master/graph/badge.svg)](https://codecov.io/gh/xdefrag/viper-etcd)
+[![Go Report Card](https://goreportcard.com/badge/github.com/xdefrag/viper-etcd)](https://goreportcard.com/report/github.com/xdefrag/viper-etcd)
 
-Advanced ETCD remote config provider for viper.
+Advanced ETCD remote config provider for [Viper](https://github.com/spf13/viper). Default remote config needs json on specific key, this one recursively get all nested key-values.
 
-*Attention!* This remote provider doesn't support SecretKeyring.
+*Attention!* This remote provider doesn't support SecretKeyring yet.
 
 In your viper configurations do this:
 ```go
@@ -13,7 +14,4 @@ import (
         _ "github.com/xdefrag/viper-etcd/remote"
 )
 ```
-
-And it will work. I hope. Anyway it work in progress, but no more ugly jsons, with this package you can enjoy real deal etcd key value experience!
-
-More details soon.
+And that's it. More details in [example](https://github.com/xdefrag/viper-etcd/blob/master/example/example.go).
