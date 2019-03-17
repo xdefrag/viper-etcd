@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 
@@ -37,7 +38,7 @@ func (p provider) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteRes
 		}
 	}(done)
 
-	go func(ctx context.Context, rr chan<- *viper.RemoteResponse, key string) {
+	go func(ctx context.Context, rr chan<- *viper.RemoteResponse) {
 		for {
 			res, err := watcher.Next(ctx)
 
@@ -58,7 +59,7 @@ func (p provider) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteRes
 			}
 		}
 
-	}(ctx, rr, rp.Path())
+	}(ctx, rr)
 
 	return rr, done
 }
@@ -112,31 +113,44 @@ func watcher(rp viper.RemoteProvider) (etcd.Watcher, error) {
 }
 
 func readr(rp viper.RemoteProvider, node *etcd.Node) []byte {
-	vars := make(map[string]string)
-	nodeWalk(rp, node, vars)
-
-	b, _ := json.Marshal(vars)
+	b, _ := json.Marshal(nodeVals(node, rp.Path(), rp.SecretKeyring()).(map[string]interface{}))
 
 	return b
 }
 
-func nodeWalk(rp viper.RemoteProvider, node *etcd.Node, vars map[string]string) {
-	if node != nil {
-		k := node.Key
-		if !node.Dir {
-			if rp.SecretKeyring() != "" {
-				// TODO decode
-			}
-
-			vars[keyReplace(k, rp.Path())] = node.Value
-		} else {
-			for _, node := range node.Nodes {
-				nodeWalk(rp, node, vars)
-			}
+func nodeVals(node *etcd.Node, path, keyring string) interface{} {
+	if !node.Dir && path == node.Key {
+		if keyring != "" {
+			//
 		}
+
+		return node.Value
 	}
+
+	vv := make(map[string]interface{})
+
+	if len(node.Nodes) == 0 {
+		newKey := keyFirstChild(strings.ReplaceAll(node.Key, path, ""))
+		vv[newKey] = nodeVals(node, fmt.Sprintf("%s/%s", path, newKey), keyring)
+
+		return vv
+	}
+
+	for _, n := range node.Nodes {
+		vv[keyLastChild(n.Key)] = nodeVals(n, n.Key, keyring)
+	}
+
+	return vv
 }
 
-func keyReplace(key, pre string) string {
-	return strings.ReplaceAll(strings.TrimPrefix(key, pre+"/"), "/", ".")
+func keyLastChild(key string) string {
+	kk := strings.Split(key, "/")
+
+	return kk[len(kk)-1]
+}
+
+func keyFirstChild(key string) string {
+	kk := strings.Split(key, "/")
+
+	return kk[1]
 }

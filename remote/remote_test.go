@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jeremywohl/flatten"
 	etcd "go.etcd.io/etcd/client"
 )
 
@@ -63,21 +64,23 @@ func TestRemote(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		assertMap(t, bytes.NewReader(r.Value), map[string]string{
-			"access.token": "newtoken",
+		assertMap(t, bytes.NewReader(r.Value), map[string]interface{}{
+			"access": map[string]interface{}{
+				"token": "newtoken",
+			},
 		})
 
 		done <- false
 	})
 }
 
-func assertMap(t *testing.T, r io.Reader, m map[string]string) {
+func assertMap(t *testing.T, r io.Reader, m map[string]interface{}) {
 	b, err := ioutil.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var tc map[string]string
+	var tc map[string]interface{}
 	if err := json.Unmarshal(b, &tc); err != nil {
 		t.Fatal(err)
 	}
@@ -87,11 +90,15 @@ func assertMap(t *testing.T, r io.Reader, m map[string]string) {
 	}
 }
 
-var testconfig = map[string]string{
-	"database.addr":     "http://localhost:5432",
-	"database.password": "testing_password",
-	"database.username": "testing_username",
-	"access.token":      "testing_token",
+var testconfig = map[string]interface{}{
+	"database": map[string]interface{}{
+		"addr":     "http://localhost:5432",
+		"password": "testing_password",
+		"username": "testing_username",
+	},
+	"access": map[string]interface{}{
+		"token": "testing_token",
+	},
 }
 
 func etcdKeysInit(t *testing.T) {
@@ -100,9 +107,14 @@ func etcdKeysInit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for k, v := range testconfig {
+	tc, err := flatten.Flatten(testconfig, "", flatten.DotStyle)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for k, v := range tc {
 		k = "/testconfig/" + strings.Replace(k, ".", "/", -1)
-		must2(t)(kapi.Set(context.Background(), k, v, nil))
+		must2(t)(kapi.Set(context.Background(), k, v.(string), nil))
 	}
 }
 
