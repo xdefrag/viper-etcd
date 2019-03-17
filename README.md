@@ -5,7 +5,7 @@
 
 Advanced ETCD remote config provider for [Viper](https://github.com/spf13/viper). Default remote config needs json on specific key, this one recursively get all nested key-values.
 
-*Attention!* This remote provider doesn't support SecretKeyring yet.
+**Attention!** This remote provider doesn't support SecretKeyring. [Crypt](https://github.com/xordataexchange/crypt) that Viper used for encryption is [abandoned](https://github.com/xordataexchange/crypt/issues/23) and [doesn't work well with latest GPG versions](https://github.com/xordataexchange/crypt/issues/12).
 
 In your viper configurations do this:
 ```go
