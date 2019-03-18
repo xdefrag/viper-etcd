@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jeremywohl/flatten"
+	"github.com/spf13/viper"
 	etcd "go.etcd.io/etcd/client"
 )
 
@@ -26,7 +27,7 @@ func TestRemote(t *testing.T) {
 	defer etcdKeysClear(t)
 
 	t.Run("Get", func(t *testing.T) {
-		r, err := newProvider().Get(drp)
+		r, err := newConfig().Get(drp)
 		if err != nil {
 			t.Error(err)
 		}
@@ -35,7 +36,7 @@ func TestRemote(t *testing.T) {
 	})
 
 	t.Run("Watch", func(t *testing.T) {
-		r, err := newProvider().Watch(drp)
+		r, err := newConfig().Watch(drp)
 		if err != nil {
 			t.Error(err)
 		}
@@ -44,7 +45,7 @@ func TestRemote(t *testing.T) {
 	})
 
 	t.Run("WatchChannel", func(t *testing.T) {
-		rr, done := newProvider().WatchChannel(drp)
+		rr, done := newConfig().WatchChannel(drp)
 		time.Sleep(time.Second)
 
 		c, err := newEtcdClient(newDefaultRemoteProvider())
@@ -100,6 +101,17 @@ var testconfig = map[string]interface{}{
 	},
 }
 
+func newEtcdClient(rp viper.RemoteProvider) (etcd.KeysAPI, error) {
+	client, err := etcd.New(etcd.Config{
+		Endpoints: []string{rp.Endpoint()},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return etcd.NewKeysAPI(client), nil
+}
+
 func etcdKeysInit(t *testing.T) {
 	kapi, err := newEtcdClient(newDefaultRemoteProvider())
 	if err != nil {
@@ -136,8 +148,8 @@ func newDefaultRemoteProvider() defaultRemoteProvider {
 	}
 }
 
-func newProvider() *provider {
-	return &provider{}
+func newConfig() *Config {
+	return &Config{}
 }
 
 type defaultRemoteProvider struct {
