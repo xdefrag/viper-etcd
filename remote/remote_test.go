@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"os"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -107,13 +106,12 @@ func etcdKeysInit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tc, err := flatten.Flatten(testconfig, "", flatten.DotStyle)
+	tc, err := flatten.Flatten(testconfig, "/testconfig/", flatten.PathStyle)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for k, v := range tc {
-		k = "/testconfig/" + strings.Replace(k, ".", "/", -1)
 		must2(t)(kapi.Set(context.Background(), k, v.(string), nil))
 	}
 }
