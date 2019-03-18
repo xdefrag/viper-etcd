@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"strings"
 
@@ -12,16 +11,37 @@ import (
 	etcd "go.etcd.io/etcd/client"
 )
 
-func (p provider) Get(rp viper.RemoteProvider) (io.Reader, error) {
-	return get(rp)
+type Decoder interface {
+	Decode(io.Reader) (interface{}, error)
 }
 
-func (p provider) Watch(rp viper.RemoteProvider) (io.Reader, error) {
-	return get(rp)
+type Config struct {
+	Decoder
+	viper.RemoteProvider
+
+	Username string
+	Password string
 }
 
-func (p provider) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteResponse, chan bool) {
-	watcher, err := watcher(rp)
+func (c *Config) Get(rp viper.RemoteProvider) (io.Reader, error) {
+	c.verify(rp)
+	c.RemoteProvider = rp
+
+	return c.get()
+}
+
+func (c *Config) Watch(rp viper.RemoteProvider) (io.Reader, error) {
+	c.verify(rp)
+	c.RemoteProvider = rp
+
+	return c.get()
+}
+
+func (c *Config) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteResponse, chan bool) {
+	c.verify(rp)
+	c.RemoteProvider = rp
+
+	watcher, err := c.watcher()
 	if err != nil {
 		return nil, nil
 	}
@@ -29,7 +49,7 @@ func (p provider) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteRes
 	rr := make(chan *viper.RemoteResponse)
 	done := make(chan bool)
 
-	ctx, cancel := context.WithCancel(ctx())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go func(done <-chan bool) {
 		select {
@@ -55,7 +75,7 @@ func (p provider) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteRes
 			}
 
 			rr <- &viper.RemoteResponse{
-				Value: readr(rp, res.Node),
+				Value: c.readr(res.Node),
 			}
 		}
 
@@ -64,15 +84,22 @@ func (p provider) WatchChannel(rp viper.RemoteProvider) (<-chan *viper.RemoteRes
 	return rr, done
 }
 
-type provider struct{}
+func (c Config) verify(rp viper.RemoteProvider) {
+	if rp.Provider() != "etcd" {
+		panic("Viper-etcd remote supports only etcd.")
+	}
 
-func init() {
-	viper.RemoteConfig = &provider{}
+	if rp.SecretKeyring() != "" {
+		panic("Viper-etcd doesn't support keyrings, use Decoder instead.")
+	}
 }
 
-func newEtcdClient(rp viper.RemoteProvider) (etcd.KeysAPI, error) {
+func (c Config) newEtcdClient() (etcd.KeysAPI, error) {
 	client, err := etcd.New(etcd.Config{
-		Endpoints: []string{rp.Endpoint()},
+		Username: c.Username,
+		Password: c.Password,
+
+		Endpoints: []string{c.Endpoint()},
 	})
 	if err != nil {
 		return nil, err
@@ -81,47 +108,46 @@ func newEtcdClient(rp viper.RemoteProvider) (etcd.KeysAPI, error) {
 	return etcd.NewKeysAPI(client), nil
 }
 
-func ctx() context.Context {
-	return context.Background()
-}
-
-func get(rp viper.RemoteProvider) (io.Reader, error) {
-	kapi, err := newEtcdClient(rp)
+func (c Config) get() (io.Reader, error) {
+	kapi, err := c.newEtcdClient()
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := kapi.Get(ctx(), rp.Path(), &etcd.GetOptions{
+	res, err := kapi.Get(context.Background(), c.Path(), &etcd.GetOptions{
 		Recursive: true,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return bytes.NewReader(readr(rp, res.Node)), nil
+	return bytes.NewReader(c.readr(res.Node)), nil
 }
 
-func watcher(rp viper.RemoteProvider) (etcd.Watcher, error) {
-	kapi, err := newEtcdClient(rp)
+func (c Config) watcher() (etcd.Watcher, error) {
+	kapi, err := c.newEtcdClient()
 	if err != nil {
 		return nil, err
 	}
 
-	return kapi.Watcher(rp.Path(), &etcd.WatcherOptions{
+	return kapi.Watcher(c.Path(), &etcd.WatcherOptions{
 		Recursive: true,
 	}), nil
 }
 
-func readr(rp viper.RemoteProvider, node *etcd.Node) []byte {
-	b, _ := json.Marshal(nodeVals(node, rp.Path(), rp.SecretKeyring()).(map[string]interface{}))
+func (c Config) readr(node *etcd.Node) []byte {
+	m, _ := json.Marshal(c.nodeVals(node, c.Path()).(map[string]interface{}))
 
-	return b
+	return m
 }
 
-func nodeVals(node *etcd.Node, path, keyring string) interface{} {
+func (c Config) nodeVals(node *etcd.Node, path string) interface{} {
 	if !node.Dir && path == node.Key {
-		if keyring != "" {
-			//
+
+		if c.Decoder != nil {
+			val, _ := c.Decode(strings.NewReader(node.Value))
+
+			return val
 		}
 
 		return node.Value
@@ -130,14 +156,14 @@ func nodeVals(node *etcd.Node, path, keyring string) interface{} {
 	vv := make(map[string]interface{})
 
 	if len(node.Nodes) == 0 {
-		newKey := keyFirstChild(strings.ReplaceAll(node.Key, path, ""))
-		vv[newKey] = nodeVals(node, fmt.Sprintf("%s/%s", path, newKey), keyring)
+		newKey := keyFirstChild(strDiff(node.Key, path))
+		vv[newKey] = c.nodeVals(node, pathSum(path, newKey))
 
 		return vv
 	}
 
 	for _, n := range node.Nodes {
-		vv[keyLastChild(n.Key)] = nodeVals(n, n.Key, keyring)
+		vv[keyLastChild(n.Key)] = c.nodeVals(n, n.Key)
 	}
 
 	return vv
@@ -153,4 +179,12 @@ func keyFirstChild(key string) string {
 	kk := strings.Split(key, "/")
 
 	return kk[1]
+}
+
+func strDiff(s1, s2 string) string {
+	return strings.ReplaceAll(s1, s2, "")
+}
+
+func pathSum(pp ...string) string {
+	return strings.Join(pp, "/")
 }
